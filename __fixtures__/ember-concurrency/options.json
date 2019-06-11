@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "ember-concurrency": ["task", "taskGroup"]
+  }
+}

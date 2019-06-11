@@ -1,4 +1,5 @@
 import { join } from 'path';
+// @ts-ignore
 import pluginTester from 'babel-plugin-tester';
 import transformClassPropertyAssignmentToDecorator from './';
 

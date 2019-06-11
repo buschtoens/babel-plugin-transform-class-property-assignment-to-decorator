@@ -1,6 +1,4 @@
-import babel, { PluginObj, NodePath, types, Visitor } from '@babel/core';
-import { VisitNodeFunction } from '@babel/traverse';
-import { CallExpression, Identifier, Expression } from '@babel/types';
+import babel, { PluginObj, NodePath, types } from '@babel/core';
 
 interface State {
   opts: {
@@ -12,77 +10,13 @@ interface Imports {
   [moduleName: string]: string[];
 }
 
-export type FunctionalVisitor<S = {}> = {
-  [Type in types.Node['type']]?: VisitNodeFunction<
-    S,
-    Extract<types.Node, { type: Type }>
-  >
-} &
-  { [K in keyof types.Aliases]?: VisitNodeFunction<S, types.Aliases[K]> };
-
-function toFunctionalVisitor<S, V extends FunctionalVisitor<S>>(
-  _state: S,
-  visitor: V
-): Pick<Required<V>, keyof V> {
-  return visitor;
-}
-
 export default function transformClassPropertyAssignmentToDecorator({
   types: t
 }: typeof babel): PluginObj<State> {
-  function getLeftMostCallee(
-    callExpressionPath: NodePath<CallExpression>
-  ): NodePath<Identifier> | undefined {
-    let callee = callExpressionPath.get('callee');
-    while (callee.isMemberExpression()) {
-      callee = callee.get('object');
-    }
-    if (!callee.isIdentifier()) {
-      return undefined;
-    }
-    return callee;
-  }
-
-  function shouldTransformValue(
-    valuePath: NodePath<Expression | null>,
-    imports: Imports
-  ): valuePath is NodePath<CallExpression> {
-    if (!valuePath.isCallExpression()) return false;
-
-    const identifierPath = getLeftMostCallee(valuePath);
-    if (!identifierPath) return false;
-
-    const binding = valuePath.scope.getBinding(identifierPath.node.name);
-    if (!binding) return false;
-
-    if (
-      !binding ||
-      !binding.path.isImportSpecifier() ||
-      !binding.path.parentPath.isImportDeclaration()
-    )
-      return false;
-
-    const importName = binding.path.node.imported.name;
-    const importModule = binding.path.parentPath.node.source.value;
-
-    return (
-      importModule in imports && imports[importModule].includes(importName)
-    );
-  }
-
-  const pseudoVisitors = toFunctionalVisitor((undefined as unknown) as State, {
-    ClassProperty(classPropertyPath, state) {
-      const { imports } = state.opts;
-      const valuePath = classPropertyPath.get('value');
-      // if (!shouldTransformValue(valuePath, imports)) return;
-
-      classPropertyPath.node.value = null;
-    }
-  });
-
   return {
     name: require('./package').name as string,
     visitor: {
+      // Logic loosely based on https://github.com/ember-cli/babel-plugin-ember-modules-api-polyfill
       ImportDeclaration(path, state) {
         const { imports } = state.opts;
 
@@ -108,7 +42,7 @@ export default function transformClassPropertyAssignmentToDecorator({
                 throw new Error(
                   `Using \`import * as ${
                     specifier.local
-                  } from '${importPath}'\` is not supported.`
+                  } from '${importModuleName}'\` is not supported.`
                 );
               }
               return false;
@@ -132,7 +66,20 @@ export default function transformClassPropertyAssignmentToDecorator({
             for (const referencePath of path.scope.bindings[
               importSpecifier.node.local.name
             ].referencePaths) {
-              referencePath.remove();
+              const classPropertyPath = referencePath.findParent(
+                path => !path.isExpression()
+              );
+              if (!classPropertyPath.isClassProperty())
+                throw referencePath.buildCodeFrameError(
+                  `\`${
+                    importSpecifier.node.local.name
+                  }\` has to be a direct child of a \`ClassProperty\`.`
+                );
+
+              const classProperty = classPropertyPath.node;
+
+              classProperty.decorators = [t.decorator(classProperty.value!)];
+              classProperty.value = null;
             }
           }
         }
