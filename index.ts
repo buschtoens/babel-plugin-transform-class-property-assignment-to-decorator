@@ -83,14 +83,58 @@ export default function transformClassPropertyAssignmentToDecorator({
   return {
     name: require('./package').name as string,
     visitor: {
-      Class(classPath, state) {
-        console.log(classPath);
-        const bodyPath = classPath.get('body');
-        const elementPaths = bodyPath.get('body');
+      ImportDeclaration(path, state) {
+        const { imports } = state.opts;
 
-        for (const elementPath of elementPaths) {
-          if (!elementPath.isClassProperty()) continue;
-          pseudoVisitors.ClassProperty.call(state, elementPath, state);
+        const node = path.node;
+        const importModuleName = node.source.value;
+        const specifiers = path.get('specifiers');
+
+        // This is all the imports to watch out for.
+        const exportsToTransforms = imports[importModuleName];
+
+        // Only walk specifiers if this is a module we need to watch out for.
+        if (exportsToTransforms) {
+          // Filter all the specifiers whose usages we need to transform.
+          const importsToTransform = specifiers.filter(specifierPath => {
+            const specifier = specifierPath.node;
+
+            // We only care about these 2 specifiers.
+            if (
+              specifier.type !== 'ImportDefaultSpecifier' &&
+              specifier.type !== 'ImportSpecifier'
+            ) {
+              if (specifier.type === 'ImportNamespaceSpecifier') {
+                throw new Error(
+                  `Using \`import * as ${
+                    specifier.local
+                  } from '${importPath}'\` is not supported.`
+                );
+              }
+              return false;
+            }
+
+            // Determine the import name: either `default` or named.
+            const importName =
+              specifier.type === 'ImportDefaultSpecifier'
+                ? 'default'
+                : specifier.imported.name;
+
+            // Skip, if export is not listed.
+            return exportsToTransforms.includes(importName);
+          }) as NodePath<
+            types.ImportDefaultSpecifier | types.ImportSpecifier
+          >[];
+
+          if (importsToTransform.length === 0) return;
+
+          for (const importSpecifier of importsToTransform) {
+            for (const referencePath of path.scope.bindings[
+              importSpecifier.node.local.name
+            ].referencePaths) {
+              referencePath.remove();
+            }
+          }
         }
       }
     }
