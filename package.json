@@ -1,6 +1,6 @@
 {
   "name": "babel-plugin-transform-class-property-assignment-to-decorator",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Transforms a class property assignment to a decorated class property.",
   "repository": "https://github.com/buschtoens/babel-plugin-transform-class-property-assignment-to-decorator",
   "author": "Jan Buschtöns <jan@buschtoens.me> (https://jan.buschtoens.me)",
